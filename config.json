@@ -1,0 +1,28 @@
+{
+  "name": "SAS Agent",
+  "mcp_server_url": "https://<<your-sas-host>>/mcp/v1",
+  "authorize_url": "https://<<your-sas-host>>/oauth/.../authorize",
+  "token_url": "https://<<your-sas-host>>/oauth/.../token",
+  "client_id": "<<MCP_OAUTH_CLIENT_ID>>",
+  "client_secret": "optional - only if confidential client",
+  "scope": "<<mcp_scope>>",
+  "redirect_uri": "http://localhost:8787/callback",
+  "callback_port": 8787,
+  "verify_ssl": true,
+  "ssl_ca_bundle": "",
+  "transport": "auto",
+  "token": "",
+  "llm": {
+    "provider": "openai",
+    "base_url": "https://api.openai.com/v1",
+    "model": "gpt-4o-mini",
+    "api_key": "",
+    "api_keys": {
+      "openai": "",
+      "claude": "",
+      "ollama": "",
+      "llamacpp": ""
+    },
+    "system_prompt": "You are an intelligent SAS Viya assistant. You have access to tools and models hosted on the SAS MCP Server. Use them when the user asks questions or requests actions."
+  }
+}

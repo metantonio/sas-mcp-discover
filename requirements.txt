@@ -1,0 +1,4 @@
+mcp[cli]>=2.3.0
+requests>=2.31.0
+httpx2>=2.13.0
+pyinstaller>=6.0.0

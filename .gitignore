@@ -1,0 +1,48 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# PyInstaller / Build Artifacts
+build/
+dist/
+*.manifest
+*.spec
+
+# Credentials, Local Tokens, and Environment Files
+token.json
+.token.json
+*.token
+*.key
+*.pem
+*.crt
+.env
+.env.*
+!.env.example
+
+# IDEs and Editor metadata
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.cursor/
+
+# OS-specific files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+*.log
