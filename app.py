@@ -52,8 +52,8 @@ class App:
         menubar.add_cascade(label="SAS Connection", menu=file_menu)
 
         llm_menu = tk.Menu(menubar, tearoff=0)
-        llm_menu.add_command(label="➕ Nueva Conversación", command=self._new_chat_session)
-        llm_menu.add_command(label="🛡️ Ver Vault PII Protegido...", command=self._show_pii_vault_dialog)
+        llm_menu.add_command(label="➕ New Conversation", command=self._new_chat_session)
+        llm_menu.add_command(label="🛡️ View PII Vault...", command=self._show_pii_vault_dialog)
         llm_menu.add_separator()
         llm_menu.add_command(label="Configure LLM Provider & API Keys...", command=self._configure_llm_dialog)
         llm_menu.add_separator()
@@ -188,18 +188,18 @@ class App:
         panes = ttk.PanedWindow(self.tab_chat, orient=tk.HORIZONTAL)
         panes.pack(fill="both", expand=True, padx=4, pady=4)
 
-        # ---------------- Left Pane: Historial de Conversaciones ----------------
+        # ---------------- Left Pane: Conversation History ----------------
         hist_frame = ttk.Frame(panes, width=280, padding=4)
         panes.add(hist_frame, weight=0)
 
-        # Top button: Nueva Conversación
-        btn_new_chat = ttk.Button(hist_frame, text="➕ Nueva Conversación", command=self._new_chat_session)
+        # Top button: New Conversation
+        btn_new_chat = ttk.Button(hist_frame, text="➕ New Conversation", command=self._new_chat_session)
         btn_new_chat.pack(fill="x", pady=(0, 4))
 
         # Search / filter
         filter_box = ttk.Frame(hist_frame)
         filter_box.pack(fill="x", pady=(0, 4))
-        ttk.Label(filter_box, text="Buscar:").pack(side="left", padx=(0, 4))
+        ttk.Label(filter_box, text="Search:").pack(side="left", padx=(0, 4))
         self.session_filter_var = tk.StringVar()
         self.session_filter_var.trace_add("write", lambda *_: self._refresh_session_list())
         ttk.Entry(filter_box, textvariable=self.session_filter_var).pack(fill="x", expand=True)
@@ -214,9 +214,9 @@ class App:
             show="tree headings",
             selectmode="browse"
         )
-        self.tv_sessions.heading("#0", text="Conversación")
+        self.tv_sessions.heading("#0", text="Conversation")
         self.tv_sessions.column("#0", width=145, stretch=True)
-        self.tv_sessions.heading("date", text="Fecha")
+        self.tv_sessions.heading("date", text="Date")
         self.tv_sessions.column("date", width=75, stretch=False)
         self.tv_sessions.heading("msgs", text="Msgs")
         self.tv_sessions.column("msgs", width=40, stretch=False)
@@ -230,8 +230,8 @@ class App:
         # Session actions at bottom of left pane
         sess_actions = ttk.Frame(hist_frame, padding=(0, 4))
         sess_actions.pack(fill="x")
-        ttk.Button(sess_actions, text="✏️ Renombrar", command=self._rename_current_session).pack(side="left", fill="x", expand=True, padx=(0, 2))
-        ttk.Button(sess_actions, text="🗑 Eliminar", command=self._delete_current_session).pack(side="right", fill="x", expand=True, padx=(2, 0))
+        ttk.Button(sess_actions, text="✏️ Rename", command=self._rename_current_session).pack(side="left", fill="x", expand=True, padx=(0, 2))
+        ttk.Button(sess_actions, text="🗑 Delete", command=self._delete_current_session).pack(side="right", fill="x", expand=True, padx=(2, 0))
 
         # ---------------- Right Pane: Active Conversation & Controls ----------------
         chat_right = ttk.Frame(panes, padding=4)
@@ -273,13 +273,13 @@ class App:
         self.pii_protect_var = tk.BooleanVar(value=True)
         chk_pii = ttk.Checkbutton(
             chat_top,
-            text="🛡️ Enmascarar PII",
+            text="🛡️ Mask PII (DLP)",
             variable=self.pii_protect_var
         )
         chk_pii.pack(side="left", padx=(10, 4))
 
         # Right buttons in chat_top
-        ttk.Button(chat_top, text="🛡️ Ver Vault PII", command=self._show_pii_vault_dialog).pack(side="right", padx=2)
+        ttk.Button(chat_top, text="🛡️ View PII Vault", command=self._show_pii_vault_dialog).pack(side="right", padx=2)
         ttk.Button(chat_top, text="⚙ API Keys", command=self._configure_llm_dialog).pack(side="right", padx=2)
 
         # Chat display transcript
@@ -407,7 +407,7 @@ class App:
         current_id = self.current_session.get("id") if self.current_session else None
 
         for s in sessions:
-            title = s.get("title", "Conversación")
+            title = s.get("title", "Conversation")
             if filter_text and filter_text not in title.lower():
                 continue
             updated = s.get("updated_at", "")
@@ -435,7 +435,7 @@ class App:
         prov = self.chat_provider_var.get()
         mod = self.chat_model_var.get()
         new_sess = self.session_mgr.create_session(
-            title="Nueva Conversación",
+            title="New Conversation",
             provider=prov,
             model=mod
         )
@@ -448,9 +448,9 @@ class App:
         self.chat_display.configure(state="disabled")
 
         welcome_msg = (
-            f"Nueva conversación iniciada con {prov.upper()} ({mod}).\n"
-            f"Protección PII activa: correos (1@1.com), DNI, SSN, teléfonos (ES/USA), routing ABA, cuentas y tarjetas se "
-            f"enmascaran automáticamente antes de ser enviados al modelo de IA."
+            f"New conversation started with {prov.upper()} ({mod}).\n"
+            f"Active PII Protection: Emails (1@1.com), SSN, DNI, Phones (US/ES), ABA Routing, Bank Accounts, and Cards "
+            f"are automatically masked before being sent to the AI model."
         )
         self._append_chat(None, welcome_msg, "system_msg")
         self.current_session["messages"].append({"speaker": None, "text": welcome_msg, "tag": "system_msg"})
@@ -516,7 +516,7 @@ class App:
         if not self.current_session:
             return
         curr_title = self.current_session.get("title", "")
-        new_title = simpledialog.askstring("Renombrar Conversación", "Introduce el nuevo nombre para esta conversación:", initialvalue=curr_title, parent=self.root)
+        new_title = simpledialog.askstring("Rename Conversation", "Enter new name for this conversation:", initialvalue=curr_title, parent=self.root)
         if new_title and new_title.strip():
             self.current_session["title"] = new_title.strip()
             self._save_current_session()
@@ -524,8 +524,8 @@ class App:
     def _delete_current_session(self):
         if not self.current_session:
             return
-        title = self.current_session.get("title", "Conversación")
-        if not messagebox.askyesno("Eliminar Conversación", f"¿Deseas eliminar la conversación '{title}'?", parent=self.root):
+        title = self.current_session.get("title", "Conversation")
+        if not messagebox.askyesno("Delete Conversation", f"Are you sure you want to delete conversation '{title}'?", parent=self.root):
             return
         sess_id = self.current_session.get("id")
         self.session_mgr.delete_session(sess_id)
@@ -534,7 +534,7 @@ class App:
 
     def _show_pii_vault_dialog(self):
         dlg = tk.Toplevel(self.root)
-        dlg.title("🛡️ Vault de Privacidad PII (DLP)")
+        dlg.title("🛡️ PII Privacy Vault (DLP)")
         dlg.geometry("680x480")
         dlg.transient(self.root)
 
@@ -543,15 +543,15 @@ class App:
 
         ttk.Label(
             top_info,
-            text="Datos Sensibles Enmascarados en esta Conversación",
+            text="Sensitive Data Masked in this Session",
             font=("Segoe UI", 11, "bold")
         ).pack(anchor="w")
 
         info_desc = (
-            "Los datos reales nunca se transmiten a proveedores de LLM en la nube.\n"
-            "• Correos: usuario 1, 2, ... y dominio 1, 2, ... (ej. 1@1.com, 2@1.com, 2@2.com)\n"
-            "• SSN (EE.UU.), DNI/NIE, Teléfonos (USA y España), Cuentas Bancarias, Routing ABA y Tarjetas.\n"
-            "• Al retornar la respuesta del modelo, los datos reales se restauran para tu lectura."
+            "Original sensitive data is never transmitted to cloud LLM providers.\n"
+            "• Emails: user 1, 2, ... and domain 1, 2, ... (e.g. 1@1.com, 2@1.com, 2@2.com)\n"
+            "• SSN, DNI/NIE, Phone Numbers (US & ES), Bank Accounts, ABA Routing, and Cards.\n"
+            "• Real data is automatically restored when displaying the assistant's response."
         )
         ttk.Label(top_info, text=info_desc, foreground="#444444").pack(anchor="w", pady=(4, 0))
 
@@ -561,12 +561,12 @@ class App:
 
         cols = ("type", "original", "mask")
         tv_vault = ttk.Treeview(tv_frame, columns=cols, show="headings")
-        tv_vault.heading("type", text="Tipo")
-        tv_vault.column("type", width=100)
-        tv_vault.heading("original", text="Valor Real (Local)")
-        tv_vault.column("original", width=260)
-        tv_vault.heading("mask", text="Pseudónimo (Enviado al LLM)")
-        tv_vault.column("mask", width=260)
+        tv_vault.heading("type", text="Type")
+        tv_vault.column("type", width=120)
+        tv_vault.heading("original", text="Real Value (Local)")
+        tv_vault.column("original", width=250)
+        tv_vault.heading("mask", text="Pseudonym (Sent to LLM)")
+        tv_vault.column("mask", width=250)
 
         v_scroll = ttk.Scrollbar(tv_frame, orient="vertical", command=tv_vault.yview)
         tv_vault.configure(yscrollcommand=v_scroll.set)
@@ -577,11 +577,11 @@ class App:
             tv_vault.insert("", "end", values=(item.get("type", "").upper(), item.get("original", ""), item.get("masked", "")))
 
         if not self.pii_vault.audit_log:
-            tv_vault.insert("", "end", values=("-", "No se han detectado datos sensibles todavía en esta sesión", "-"))
+            tv_vault.insert("", "end", values=("-", "No sensitive data detected in this session yet", "-"))
 
         btn_bar = ttk.Frame(dlg, padding=12)
         btn_bar.pack(fill="x")
-        ttk.Button(btn_bar, text="Cerrar", command=dlg.destroy).pack(side="right")
+        ttk.Button(btn_bar, text="Close", command=dlg.destroy).pack(side="right")
 
     def _append_chat(self, speaker, text, tag):
         def _add():
@@ -609,7 +609,7 @@ class App:
             self._new_chat_session()
 
         # Auto-update conversation title if it is still generic
-        if self.current_session.get("title") in ("Nueva Conversación", "Conversación sin título"):
+        if self.current_session.get("title") in ("New Conversation", "Untitled Conversation", "Nueva Conversación", "Conversación sin título"):
             clean_title = user_msg.replace("\n", " ").strip()
             if len(clean_title) > 35:
                 clean_title = clean_title[:32] + "..."
@@ -629,10 +629,10 @@ class App:
             _, newly_masked = vault.mask_text(user_msg)
             if newly_masked:
                 examples = [f"{item['original']} ➔ {item['masked']}" for item in newly_masked[:3]]
-                extra = f" (+{len(newly_masked)-3} más)" if len(newly_masked) > 3 else ""
+                extra = f" (+{len(newly_masked)-3} more)" if len(newly_masked) > 3 else ""
                 notice = (
-                    f"🛡️ PII Detectado & Enmascarado ({len(newly_masked)} datos protegidos: "
-                    f"{', '.join(examples)}{extra}). El LLM solo procesará los pseudónimos."
+                    f"🛡️ PII Detected & Masked ({len(newly_masked)} items protected: "
+                    f"{', '.join(examples)}{extra}). The LLM will only process pseudonyms."
                 )
                 self._append_chat(None, notice, "pii_notice")
                 self.current_session["messages"].append({

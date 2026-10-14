@@ -258,17 +258,17 @@ Double-click `dist\SASAgent.exe`. The application reads `config.json` located ne
 
 ### 3. Exploring Tools & Actions
 - The left-hand panel lists all available actions (scoring models, data routines, analytical queries) exposed by the MCP server.
-- Use the **Buscar** (Search) box to filter tools by name or description.
+- Use the **Search** box to filter tools by name or description.
 
 ### 4. Filling Parameters & Executing
 - Selecting an action renders its parameter form on the right.
 - Required fields are highlighted with an asterisk (`*`).
 - Text, numeric, boolean flags, and complex JSON structures are validated on input.
-- Click **▶ Ejecutar Acción (Run)** to trigger the model in SAS Viya.
+- Click **▶ Execute Action (Run)** to trigger the model in SAS Viya.
 
 ### 5. Reviewing Results
-- Real-time output appears in the **Resultado / Logs** console.
-- Use the **Copiar** button to copy the output to the clipboard or **Limpiar** to reset the console.
+- Real-time output appears in the **Output / Logs** console.
+- Use the **Copy** button to copy the output to the clipboard or **Clear** to reset the console.
 
 ---
 

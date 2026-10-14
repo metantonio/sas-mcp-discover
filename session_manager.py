@@ -65,7 +65,7 @@ class SessionManager:
                     msg_count = len(data.get("messages", []))
                     results.append({
                         "id": data.get("id", os.path.splitext(fname)[0]),
-                        "title": data.get("title", "Conversación sin título"),
+                        "title": data.get("title", "Untitled Conversation"),
                         "created_at": data.get("created_at", ""),
                         "updated_at": data.get("updated_at", ""),
                         "provider": data.get("provider", "openai"),
@@ -78,7 +78,7 @@ class SessionManager:
         results.sort(key=lambda s: s.get("updated_at", ""), reverse=True)
         return results
 
-    def create_session(self, title: str = "Nueva Conversación", provider: str = "openai", model: str = "") -> Dict[str, Any]:
+    def create_session(self, title: str = "New Conversation", provider: str = "openai", model: str = "") -> Dict[str, Any]:
         """Create and persist a new session."""
         now_iso = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         sess_id = f"{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
@@ -139,6 +139,6 @@ class SessionManager:
         """Rename an existing session."""
         session = self.load_session(session_id)
         if session:
-            session["title"] = new_title.strip() or "Conversación sin título"
+            session["title"] = new_title.strip() or "Untitled Conversation"
             return self.save_session(session)
         return False
