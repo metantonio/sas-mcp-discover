@@ -8,20 +8,28 @@ from tkinter import ttk, messagebox, simpledialog
 from auth import load_config, login, load_token, clear_token, save_token, get_config_path
 from mcp_client import list_tools, call_tool, run_async, extract_text
 from llm_client import LLMAgent, LLM_PRESETS
+from pii_manager import PIIVault
+from session_manager import SessionManager
 
 
 class App:
     def __init__(self, root):
         self.root = root
         self.cfg = load_config()
-        self.root.title(f"{self.cfg.get('name', 'SAS Agent')} - [MCP + LLM Chat Enabled]")
-        self.root.geometry("1180x780")
-        self.root.minsize(920, 600)
+        self.root.title(f"{self.cfg.get('name', 'SAS Agent')} - [MCP + LLM Chat + PII DLP]")
+        self.root.geometry("1200x800")
+        self.root.minsize(960, 620)
 
         self.tools = []
         self._selected_tool = None
         self._fields = []
         self.llm_agent = LLMAgent(self.cfg)
+
+        # PII and Session management
+        self.session_mgr = SessionManager()
+        self.current_session = None
+        self.pii_vault = PIIVault()
+        self._switching_session = False
 
         self._build_menu()
         self._build_ui()
@@ -44,13 +52,16 @@ class App:
         menubar.add_cascade(label="SAS Connection", menu=file_menu)
 
         llm_menu = tk.Menu(menubar, tearoff=0)
+        llm_menu.add_command(label="➕ Nueva Conversación", command=self._new_chat_session)
+        llm_menu.add_command(label="🛡️ Ver Vault PII Protegido...", command=self._show_pii_vault_dialog)
+        llm_menu.add_separator()
         llm_menu.add_command(label="Configure LLM Provider & API Keys...", command=self._configure_llm_dialog)
         llm_menu.add_separator()
         llm_menu.add_command(label="Use OpenAI (gpt-4o-mini)", command=lambda: self._quick_switch_llm("openai", "gpt-4o-mini"))
         llm_menu.add_command(label="Use Anthropic Claude (claude-3-5-sonnet)", command=lambda: self._quick_switch_llm("claude", "claude-3-5-sonnet-20241022"))
         llm_menu.add_command(label="Use Local Ollama (llama3.1)", command=lambda: self._quick_switch_llm("ollama", "llama3.1"))
         llm_menu.add_separator()
-        llm_menu.add_command(label="Reset Chat Conversation", command=self._reset_chat)
+        llm_menu.add_command(label="Reset Chat Conversation", command=self._new_chat_session)
         menubar.add_cascade(label="LLM Agent", menu=llm_menu)
 
         ssl_menu = tk.Menu(menubar, tearoff=0)
@@ -174,13 +185,63 @@ class App:
     # Tab 2: LLM Chat Assistant
     # -------------------------------------------------------------
     def _build_chat_tab(self):
-        # Chat control bar with provider / model dropdowns
-        chat_top = ttk.LabelFrame(self.tab_chat, text="Quick Agent Configuration", padding=6)
-        chat_top.pack(fill="x", padx=6, pady=(4, 2))
+        panes = ttk.PanedWindow(self.tab_chat, orient=tk.HORIZONTAL)
+        panes.pack(fill="both", expand=True, padx=4, pady=4)
+
+        # ---------------- Left Pane: Historial de Conversaciones ----------------
+        hist_frame = ttk.Frame(panes, width=280, padding=4)
+        panes.add(hist_frame, weight=0)
+
+        # Top button: Nueva Conversación
+        btn_new_chat = ttk.Button(hist_frame, text="➕ Nueva Conversación", command=self._new_chat_session)
+        btn_new_chat.pack(fill="x", pady=(0, 4))
+
+        # Search / filter
+        filter_box = ttk.Frame(hist_frame)
+        filter_box.pack(fill="x", pady=(0, 4))
+        ttk.Label(filter_box, text="Buscar:").pack(side="left", padx=(0, 4))
+        self.session_filter_var = tk.StringVar()
+        self.session_filter_var.trace_add("write", lambda *_: self._refresh_session_list())
+        ttk.Entry(filter_box, textvariable=self.session_filter_var).pack(fill="x", expand=True)
+
+        # Treeview for sessions
+        tv_box = ttk.Frame(hist_frame)
+        tv_box.pack(fill="both", expand=True)
+
+        self.tv_sessions = ttk.Treeview(
+            tv_box,
+            columns=("date", "msgs"),
+            show="tree headings",
+            selectmode="browse"
+        )
+        self.tv_sessions.heading("#0", text="Conversación")
+        self.tv_sessions.column("#0", width=145, stretch=True)
+        self.tv_sessions.heading("date", text="Fecha")
+        self.tv_sessions.column("date", width=75, stretch=False)
+        self.tv_sessions.heading("msgs", text="Msgs")
+        self.tv_sessions.column("msgs", width=40, stretch=False)
+
+        sess_scroll = ttk.Scrollbar(tv_box, orient="vertical", command=self.tv_sessions.yview)
+        self.tv_sessions.configure(yscrollcommand=sess_scroll.set)
+        self.tv_sessions.pack(side="left", fill="both", expand=True)
+        sess_scroll.pack(side="right", fill="y")
+        self.tv_sessions.bind("<<TreeviewSelect>>", self._on_session_select)
+
+        # Session actions at bottom of left pane
+        sess_actions = ttk.Frame(hist_frame, padding=(0, 4))
+        sess_actions.pack(fill="x")
+        ttk.Button(sess_actions, text="✏️ Renombrar", command=self._rename_current_session).pack(side="left", fill="x", expand=True, padx=(0, 2))
+        ttk.Button(sess_actions, text="🗑 Eliminar", command=self._delete_current_session).pack(side="right", fill="x", expand=True, padx=(2, 0))
+
+        # ---------------- Right Pane: Active Conversation & Controls ----------------
+        chat_right = ttk.Frame(panes, padding=4)
+        panes.add(chat_right, weight=1)
+
+        chat_top = ttk.LabelFrame(chat_right, text="Quick Agent Configuration & Privacy DLP", padding=6)
+        chat_top.pack(fill="x", pady=(0, 4))
 
         # Provider quick-selector
         ttk.Label(chat_top, text="Provider:", font=("Segoe UI", 9, "bold")).pack(side="left", padx=(4, 2))
-        
         self.chat_provider_var = tk.StringVar(value=self.cfg.get("llm", {}).get("provider", "openai"))
         provider_options = [
             ("openai", "OpenAI (Default: GPT-4o / mini)"),
@@ -198,23 +259,31 @@ class App:
         self.chat_provider_combo.pack(side="left", padx=4)
 
         # Model quick-selector
-        ttk.Label(chat_top, text="Model:", font=("Segoe UI", 9, "bold")).pack(side="left", padx=(8, 2))
+        ttk.Label(chat_top, text="Model:", font=("Segoe UI", 9, "bold")).pack(side="left", padx=(6, 2))
         self.chat_model_var = tk.StringVar(value=self.cfg.get("llm", {}).get("model", "gpt-4o-mini"))
-        self.chat_model_combo = ttk.Combobox(chat_top, textvariable=self.chat_model_var, width=24)
+        self.chat_model_combo = ttk.Combobox(chat_top, textvariable=self.chat_model_var, width=20)
         self.chat_model_combo.pack(side="left", padx=4)
 
-        # Populate model choices for current provider
         self._update_model_choices(self.chat_provider_var.get())
-
         self.chat_provider_combo.bind("<<ComboboxSelected>>", self._on_chat_provider_changed)
         self.chat_model_combo.bind("<<ComboboxSelected>>", self._on_chat_model_changed)
         self.chat_model_combo.bind("<Return>", lambda _: self._on_chat_model_changed())
 
-        ttk.Button(chat_top, text="⚙ Configure API Keys", command=self._configure_llm_dialog).pack(side="right", padx=4)
-        ttk.Button(chat_top, text="🗑 Reset Chat", command=self._reset_chat).pack(side="right", padx=2)
+        # PII Protection Checkbox
+        self.pii_protect_var = tk.BooleanVar(value=True)
+        chk_pii = ttk.Checkbutton(
+            chat_top,
+            text="🛡️ Enmascarar PII",
+            variable=self.pii_protect_var
+        )
+        chk_pii.pack(side="left", padx=(10, 4))
+
+        # Right buttons in chat_top
+        ttk.Button(chat_top, text="🛡️ Ver Vault PII", command=self._show_pii_vault_dialog).pack(side="right", padx=2)
+        ttk.Button(chat_top, text="⚙ API Keys", command=self._configure_llm_dialog).pack(side="right", padx=2)
 
         # Chat display transcript
-        chat_frame = ttk.Frame(self.tab_chat, padding=6)
+        chat_frame = ttk.Frame(chat_right)
         chat_frame.pack(fill="both", expand=True)
 
         chat_scroll = ttk.Scrollbar(chat_frame, orient="vertical")
@@ -227,9 +296,10 @@ class App:
         self.chat_display.tag_config("assistant", foreground="#111111", font=("Segoe UI", 10))
         self.chat_display.tag_config("tool_call", foreground="#885500", font=("Consolas", 9, "italic"))
         self.chat_display.tag_config("system_msg", foreground="#666666", font=("Segoe UI", 9, "italic"))
+        self.chat_display.tag_config("pii_notice", foreground="#882288", font=("Segoe UI", 9, "bold italic"))
 
         # Input area
-        input_frame = ttk.Frame(self.tab_chat, padding=6)
+        input_frame = ttk.Frame(chat_right, padding=(0, 6))
         input_frame.pack(fill="x", side="bottom")
 
         self.chat_input = tk.Text(input_frame, height=3, font=("Segoe UI", 10), wrap="word")
@@ -242,7 +312,10 @@ class App:
         self.btn_send = ttk.Button(btn_box, text="Send 💬", command=self._send_chat_message)
         self.btn_send.pack(fill="both", expand=True)
 
-        self.chat_progress = ttk.Progressbar(self.tab_chat, mode="indeterminate")
+        self.chat_progress = ttk.Progressbar(chat_right, mode="indeterminate")
+
+        # Load existing sessions or start a new one
+        self._init_sessions_ui()
 
     def _update_model_choices(self, provider):
         preset = LLM_PRESETS.get(provider, LLM_PRESETS["openai"])
@@ -314,6 +387,202 @@ class App:
         except Exception as e:
             print(f"Notice: Could not write updated config.json: {e}", file=sys.stderr)
 
+    # -------------------------------------------------------------
+    # Session Management & PII Dialogs
+    # -------------------------------------------------------------
+    def _init_sessions_ui(self):
+        sessions = self.session_mgr.list_sessions()
+        self._refresh_session_list()
+        if sessions:
+            self._load_session_by_id(sessions[0]["id"])
+        else:
+            self._new_chat_session()
+
+    def _refresh_session_list(self):
+        filter_text = self.session_filter_var.get().strip().lower() if hasattr(self, "session_filter_var") else ""
+        for item in self.tv_sessions.get_children():
+            self.tv_sessions.delete(item)
+
+        sessions = self.session_mgr.list_sessions()
+        current_id = self.current_session.get("id") if self.current_session else None
+
+        for s in sessions:
+            title = s.get("title", "Conversación")
+            if filter_text and filter_text not in title.lower():
+                continue
+            updated = s.get("updated_at", "")
+            if len(updated) >= 16:
+                short_date = updated[5:16].replace("-", "/")
+            else:
+                short_date = updated
+            item_id = self.tv_sessions.insert("", "end", iid=s["id"], text=title, values=(short_date, s.get("message_count", 0)))
+            if current_id and s["id"] == current_id:
+                self.tv_sessions.selection_set(item_id)
+                self.tv_sessions.see(item_id)
+
+    def _on_session_select(self, event=None):
+        if self._switching_session:
+            return
+        selected = self.tv_sessions.selection()
+        if not selected:
+            return
+        sess_id = selected[0]
+        if self.current_session and self.current_session.get("id") == sess_id:
+            return
+        self._load_session_by_id(sess_id)
+
+    def _new_chat_session(self):
+        prov = self.chat_provider_var.get()
+        mod = self.chat_model_var.get()
+        new_sess = self.session_mgr.create_session(
+            title="Nueva Conversación",
+            provider=prov,
+            model=mod
+        )
+        self.current_session = new_sess
+        self.pii_vault.reset()
+        self.llm_agent.reset_chat()
+
+        self.chat_display.configure(state="normal")
+        self.chat_display.delete("1.0", "end")
+        self.chat_display.configure(state="disabled")
+
+        welcome_msg = (
+            f"Nueva conversación iniciada con {prov.upper()} ({mod}).\n"
+            f"Protección PII activa: correos (1@1.com), DNI, SSN, teléfonos (ES/USA), routing ABA, cuentas y tarjetas se "
+            f"enmascaran automáticamente antes de ser enviados al modelo de IA."
+        )
+        self._append_chat(None, welcome_msg, "system_msg")
+        self.current_session["messages"].append({"speaker": None, "text": welcome_msg, "tag": "system_msg"})
+        self.session_mgr.save_session(self.current_session)
+
+        self._refresh_session_list()
+        self._switching_session = True
+        try:
+            self.tv_sessions.selection_set(new_sess["id"])
+            self.tv_sessions.see(new_sess["id"])
+        finally:
+            self._switching_session = False
+
+    def _load_session_by_id(self, sess_id):
+        sess_data = self.session_mgr.load_session(sess_id)
+        if not sess_data:
+            return
+
+        self._switching_session = True
+        try:
+            self.current_session = sess_data
+            self.pii_vault.from_dict(sess_data.get("pii_vault", {}))
+            self.llm_agent.set_messages(sess_data.get("llm_history", []))
+
+            # Restore display
+            self.chat_display.configure(state="normal")
+            self.chat_display.delete("1.0", "end")
+            for m in sess_data.get("messages", []):
+                spk = m.get("speaker")
+                txt = m.get("text", "")
+                tag = m.get("tag", "assistant")
+                if spk:
+                    self.chat_display.insert("end", f"{spk}:\n", tag)
+                self.chat_display.insert("end", f"{txt}\n\n", tag)
+            self.chat_display.see("end")
+            self.chat_display.configure(state="disabled")
+
+            # Restore provider / model
+            prov = sess_data.get("provider")
+            mod = sess_data.get("model")
+            if prov and prov in LLM_PRESETS:
+                self.chat_provider_var.set(prov)
+                self._update_model_choices(prov)
+                if mod:
+                    self.chat_model_var.set(mod)
+
+            self.tv_sessions.selection_set(sess_id)
+            self.tv_sessions.see(sess_id)
+        finally:
+            self._switching_session = False
+
+    def _save_current_session(self):
+        if not self.current_session:
+            return
+        self.current_session["llm_history"] = self.llm_agent.get_messages()
+        self.current_session["pii_vault"] = self.pii_vault.to_dict()
+        self.current_session["provider"] = self.chat_provider_var.get()
+        self.current_session["model"] = self.chat_model_var.get()
+        self.session_mgr.save_session(self.current_session)
+        self._refresh_session_list()
+
+    def _rename_current_session(self):
+        if not self.current_session:
+            return
+        curr_title = self.current_session.get("title", "")
+        new_title = simpledialog.askstring("Renombrar Conversación", "Introduce el nuevo nombre para esta conversación:", initialvalue=curr_title, parent=self.root)
+        if new_title and new_title.strip():
+            self.current_session["title"] = new_title.strip()
+            self._save_current_session()
+
+    def _delete_current_session(self):
+        if not self.current_session:
+            return
+        title = self.current_session.get("title", "Conversación")
+        if not messagebox.askyesno("Eliminar Conversación", f"¿Deseas eliminar la conversación '{title}'?", parent=self.root):
+            return
+        sess_id = self.current_session.get("id")
+        self.session_mgr.delete_session(sess_id)
+        self.current_session = None
+        self._init_sessions_ui()
+
+    def _show_pii_vault_dialog(self):
+        dlg = tk.Toplevel(self.root)
+        dlg.title("🛡️ Vault de Privacidad PII (DLP)")
+        dlg.geometry("680x480")
+        dlg.transient(self.root)
+
+        top_info = ttk.Frame(dlg, padding=12)
+        top_info.pack(fill="x")
+
+        ttk.Label(
+            top_info,
+            text="Datos Sensibles Enmascarados en esta Conversación",
+            font=("Segoe UI", 11, "bold")
+        ).pack(anchor="w")
+
+        info_desc = (
+            "Los datos reales nunca se transmiten a proveedores de LLM en la nube.\n"
+            "• Correos: usuario 1, 2, ... y dominio 1, 2, ... (ej. 1@1.com, 2@1.com, 2@2.com)\n"
+            "• SSN (EE.UU.), DNI/NIE, Teléfonos (USA y España), Cuentas Bancarias, Routing ABA y Tarjetas.\n"
+            "• Al retornar la respuesta del modelo, los datos reales se restauran para tu lectura."
+        )
+        ttk.Label(top_info, text=info_desc, foreground="#444444").pack(anchor="w", pady=(4, 0))
+
+        # Table showing current mappings
+        tv_frame = ttk.Frame(dlg, padding=(12, 0, 12, 12))
+        tv_frame.pack(fill="both", expand=True)
+
+        cols = ("type", "original", "mask")
+        tv_vault = ttk.Treeview(tv_frame, columns=cols, show="headings")
+        tv_vault.heading("type", text="Tipo")
+        tv_vault.column("type", width=100)
+        tv_vault.heading("original", text="Valor Real (Local)")
+        tv_vault.column("original", width=260)
+        tv_vault.heading("mask", text="Pseudónimo (Enviado al LLM)")
+        tv_vault.column("mask", width=260)
+
+        v_scroll = ttk.Scrollbar(tv_frame, orient="vertical", command=tv_vault.yview)
+        tv_vault.configure(yscrollcommand=v_scroll.set)
+        tv_vault.pack(side="left", fill="both", expand=True)
+        v_scroll.pack(side="right", fill="y")
+
+        for item in self.pii_vault.audit_log:
+            tv_vault.insert("", "end", values=(item.get("type", "").upper(), item.get("original", ""), item.get("masked", "")))
+
+        if not self.pii_vault.audit_log:
+            tv_vault.insert("", "end", values=("-", "No se han detectado datos sensibles todavía en esta sesión", "-"))
+
+        btn_bar = ttk.Frame(dlg, padding=12)
+        btn_bar.pack(fill="x")
+        ttk.Button(btn_bar, text="Cerrar", command=dlg.destroy).pack(side="right")
+
     def _append_chat(self, speaker, text, tag):
         def _add():
             self.chat_display.configure(state="normal")
@@ -323,19 +592,6 @@ class App:
             self.chat_display.see("end")
             self.chat_display.configure(state="disabled")
         self.root.after(0, _add)
-
-    def _reset_chat(self):
-        self.llm_agent.reset_chat()
-        self.chat_display.configure(state="normal")
-        self.chat_display.delete("1.0", "end")
-        self.chat_display.configure(state="disabled")
-        prov = self.cfg.get("llm", {}).get("provider", "openai").upper()
-        mod = self.cfg.get("llm", {}).get("model", "gpt-4o-mini")
-        self._append_chat(
-            None,
-            f"Conversation reset with {prov} ({mod}). What SAS Viya model or action would you like to evaluate?",
-            "system_msg"
-        )
 
     def _on_chat_enter(self, event):
         if not event.state & 0x0001:  # Shift not pressed
@@ -348,12 +604,47 @@ class App:
             return
 
         self.chat_input.delete("1.0", "end")
+
+        if not self.current_session:
+            self._new_chat_session()
+
+        # Auto-update conversation title if it is still generic
+        if self.current_session.get("title") in ("Nueva Conversación", "Conversación sin título"):
+            clean_title = user_msg.replace("\n", " ").strip()
+            if len(clean_title) > 35:
+                clean_title = clean_title[:32] + "..."
+            self.current_session["title"] = clean_title
+
+        # Display user message as entered
         self._append_chat("You", user_msg, "user")
+        self.current_session["messages"].append({
+            "speaker": "You",
+            "text": user_msg,
+            "tag": "user"
+        })
+
+        # Check PII
+        vault = self.pii_vault if self.pii_protect_var.get() else None
+        if vault:
+            _, newly_masked = vault.mask_text(user_msg)
+            if newly_masked:
+                examples = [f"{item['original']} ➔ {item['masked']}" for item in newly_masked[:3]]
+                extra = f" (+{len(newly_masked)-3} más)" if len(newly_masked) > 3 else ""
+                notice = (
+                    f"🛡️ PII Detectado & Enmascarado ({len(newly_masked)} datos protegidos: "
+                    f"{', '.join(examples)}{extra}). El LLM solo procesará los pseudónimos."
+                )
+                self._append_chat(None, notice, "pii_notice")
+                self.current_session["messages"].append({
+                    "speaker": None,
+                    "text": notice,
+                    "tag": "pii_notice"
+                })
 
         self.btn_send.configure(state="disabled")
         self.chat_progress.pack(fill="x", side="bottom", padx=6, pady=2)
         self.chat_progress.start(10)
-        prov = self.cfg.get("llm", {}).get("provider", "openai").upper()
+        prov = self.chat_provider_var.get().upper()
         self.set_status(f"Agent ({prov}) is reasoning...", "blue")
 
         def worker():
@@ -363,19 +654,40 @@ class App:
 
                 def log_cb(msg):
                     self._append_chat(None, msg, "tool_call")
+                    if self.current_session:
+                        self.current_session["messages"].append({
+                            "speaker": None,
+                            "text": msg,
+                            "tag": "tool_call"
+                        })
 
                 response = self.llm_agent.chat_step(
                     user_text=user_msg,
                     mcp_tools=self.tools,
                     sas_url=url,
                     sas_token=tok,
-                    log_callback=log_cb
+                    log_callback=log_cb,
+                    pii_vault=vault
                 )
                 self._append_chat("SAS Assistant", response, "assistant")
+                if self.current_session:
+                    self.current_session["messages"].append({
+                        "speaker": "SAS Assistant",
+                        "text": response,
+                        "tag": "assistant"
+                    })
+                    self._save_current_session()
                 self.set_status("Response generated", "#007700")
             except Exception as e:
                 err = f"Agent call error: {str(e)}"
                 self._append_chat("Error", err, "system_msg")
+                if self.current_session:
+                    self.current_session["messages"].append({
+                        "speaker": "Error",
+                        "text": err,
+                        "tag": "system_msg"
+                    })
+                    self._save_current_session()
                 self.set_status("Agent Error", "red")
             finally:
                 def cleanup():

@@ -89,6 +89,19 @@ def mcp_to_anthropic_tools(mcp_tools):
     return anthropic_tools
 
 
+def unmask_data_structures(obj, pii_vault):
+    """Recursively restore real PII in dictionaries, lists, or strings before calling SAS Viya."""
+    if not pii_vault:
+        return obj
+    if isinstance(obj, str):
+        return pii_vault.unmask_text(obj)
+    elif isinstance(obj, dict):
+        return {k: unmask_data_structures(v, pii_vault) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [unmask_data_structures(item, pii_vault) for item in obj]
+    return obj
+
+
 class LLMAgent:
     def __init__(self, cfg):
         self.cfg = cfg
@@ -133,10 +146,23 @@ class LLMAgent:
     def reset_chat(self):
         self._init_history()
 
-    def chat_step(self, user_text, mcp_tools, sas_url, sas_token, log_callback=None):
+    def get_messages(self):
+        """Return current conversation messages for session persistence."""
+        return list(self.messages)
+
+    def set_messages(self, messages):
+        """Restore conversation messages from a saved session."""
+        if messages:
+            self.messages = list(messages)
+        else:
+            self._init_history()
+
+    def chat_step(self, user_text, mcp_tools, sas_url, sas_token, log_callback=None, pii_vault=None):
         """
         Execute one conversational agent step with automatic tool execution loop.
         log_callback(msg: str) is invoked when tools are executed or status changes.
+        pii_vault: Optional PIIVault instance to anonymize user text, unmask tool inputs for Viya,
+                   mask tool outputs for LLM, and unmask final response for user.
         Returns final text reply from the LLM.
         """
         preset = LLM_PRESETS.get(self.provider, {})
@@ -149,15 +175,26 @@ class LLMAgent:
                 log_callback(err)
             return err
 
+        # Mask user text if vault is provided
+        prompt_text = user_text
+        if pii_vault:
+            prompt_text, _ = pii_vault.mask_text(user_text)
+
         if self.provider == "claude":
-            return self._chat_step_claude(user_text, mcp_tools, sas_url, sas_token, log_callback)
+            reply = self._chat_step_claude(prompt_text, mcp_tools, sas_url, sas_token, log_callback, pii_vault)
         else:
-            return self._chat_step_openai_compat(user_text, mcp_tools, sas_url, sas_token, log_callback)
+            reply = self._chat_step_openai_compat(prompt_text, mcp_tools, sas_url, sas_token, log_callback, pii_vault)
+
+        # Unmask final response for human display
+        if pii_vault and reply:
+            reply = pii_vault.unmask_text(reply)
+
+        return reply
 
     # -------------------------------------------------------------
     # OpenAI & OpenAI-compatible (Ollama, llama.cpp, vLLM, LM Studio)
     # -------------------------------------------------------------
-    def _chat_step_openai_compat(self, user_text, mcp_tools, sas_url, sas_token, log_callback):
+    def _chat_step_openai_compat(self, user_text, mcp_tools, sas_url, sas_token, log_callback, pii_vault=None):
         self.messages.append({"role": "user", "content": user_text})
         tools = mcp_to_openai_tools(mcp_tools)
 
@@ -206,11 +243,14 @@ class LLMAgent:
                 except Exception:
                     args = {}
 
+                # Unmask arguments for internal SAS Viya execution if PII protection is active
+                viya_args = unmask_data_structures(args, pii_vault)
+
                 if log_callback:
                     log_callback(f"⚙️ Calling SAS Viya: {tool_name}({json.dumps(args, ensure_ascii=False)})")
 
                 try:
-                    res = run_async(call_tool, sas_url, sas_token, tool_name, args, self.cfg)
+                    res = run_async(call_tool, sas_url, sas_token, tool_name, viya_args, self.cfg)
                     output_str = extract_text(res)
                 except Exception as ex:
                     output_str = f"Error executing tool '{tool_name}': {str(ex)}"
@@ -218,11 +258,16 @@ class LLMAgent:
                 if log_callback:
                     log_callback(f"✓ SAS Viya responded successfully ({len(output_str)} characters)")
 
+                # Mask output before returning to cloud LLM to prevent data leaks
+                llm_output_str = output_str
+                if pii_vault:
+                    llm_output_str, _ = pii_vault.mask_text(output_str)
+
                 self.messages.append({
                     "role": "tool",
                     "tool_call_id": tc.get("id", f"call_{tool_name}"),
                     "name": tool_name,
-                    "content": output_str,
+                    "content": llm_output_str,
                 })
 
         return "Exceeded maximum consecutive SAS Viya tool call limit."
@@ -230,7 +275,7 @@ class LLMAgent:
     # -------------------------------------------------------------
     # Anthropic Claude Native API (/v1/messages)
     # -------------------------------------------------------------
-    def _chat_step_claude(self, user_text, mcp_tools, sas_url, sas_token, log_callback):
+    def _chat_step_claude(self, user_text, mcp_tools, sas_url, sas_token, log_callback, pii_vault=None):
         self.messages.append({"role": "user", "content": user_text})
         tools = mcp_to_anthropic_tools(mcp_tools)
 
@@ -275,11 +320,13 @@ class LLMAgent:
                 args = tu.get("input", {})
                 tool_id = tu.get("id", "")
 
+                viya_args = unmask_data_structures(args, pii_vault)
+
                 if log_callback:
                     log_callback(f"⚙️ Calling SAS Viya: {tool_name}({json.dumps(args, ensure_ascii=False)})")
 
                 try:
-                    res = run_async(call_tool, sas_url, sas_token, tool_name, args, self.cfg)
+                    res = run_async(call_tool, sas_url, sas_token, tool_name, viya_args, self.cfg)
                     output_str = extract_text(res)
                 except Exception as ex:
                     output_str = f"Error executing tool '{tool_name}': {str(ex)}"
@@ -287,12 +334,16 @@ class LLMAgent:
                 if log_callback:
                     log_callback(f"✓ SAS Viya responded successfully ({len(output_str)} characters)")
 
+                llm_output_str = output_str
+                if pii_vault:
+                    llm_output_str, _ = pii_vault.mask_text(output_str)
+
                 self.messages.append({
                     "role": "user",
                     "content": [{
                         "type": "tool_result",
                         "tool_use_id": tool_id,
-                        "content": output_str,
+                        "content": llm_output_str,
                     }]
                 })
 

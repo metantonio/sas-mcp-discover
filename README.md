@@ -38,8 +38,21 @@ In typical SAS Viya enterprise environments, powerful predictive models, decisio
   - Real-time search and filter for quick action lookup.
   - Dynamically builds forms based on JSON Schema properties (strings, integers, floats, booleans, arrays, objects).
   - Scrollable view supporting tools with extensive parameter lists.
-- **AI Agent Chat Assistant (Multi-LLM Support)**:
+- **AI Agent Chat Assistant & DLP Privacy Protection**:
   - Natural language conversational tab powered by your choice of LLM: **Ollama**, **llama.cpp**, **OpenAI**, or **Anthropic Claude**.
+  - **Reversible PII Masking (DLP Vault)**:
+    - Automatically masks sensitive data before prompts reach cloud LLMs:
+      - Emails preserve domain consistency (`1@1.com`, `2@1.com` for same domain, `3@2.com` for new domains).
+      - US Social Security Numbers (`900-01-0001`) and Spanish DNI/NIE (`00000001A`).
+      - US Phone Numbers (`(555) 010-0000`) and Spanish Phone Numbers (`+34 000 000 001`).
+      - US ABA Routing Numbers with valid check digits (`011000015`) and Bank Account numbers (`100000000001`).
+      - Credit cards (`4000-0000-0000-0001`) and European IBANs (`ES00 0000 0000 0000 0001`).
+    - Intercepts SAS Viya tool calls to unmask parameters locally (so Viya executes with authentic data) and re-masks outputs before returning to the LLM.
+    - Transparently de-anonymizes LLM responses for the user in the desktop UI.
+    - Dedicated **PII Vault Viewer** dialog to inspect protected entities.
+  - **Persistent Session & Conversation History**:
+    - Manage, search, rename, and delete multiple chat sessions via a dedicated sidebar.
+    - Conversation state, LLM messages, and PII vaults are automatically saved and restored per session.
   - Uses native **Tool / Function Calling** to reason and execute SAS Viya models autonomously.
   - Real-time tool execution tracking directly inside the chat window.
   - Interactive GUI configuration dialog for instant provider, model, and API key updates.
@@ -53,7 +66,9 @@ In typical SAS Viya enterprise environments, powerful predictive models, decisio
 ```text
 sas-mcp-http/
 │
-├── app.py             # Main Tkinter desktop UI (Tabbed: Direct Form + LLM Chat)
+├── app.py             # Main Tkinter desktop UI (Direct Form + Multi-Session Chat + DLP)
+├── pii_manager.py     # Reversible PII Masking Vault (domain-preserving email & ID tokens)
+├── session_manager.py # Persistent multi-session conversation history
 ├── auth.py            # Authentication layer (OAuth 2.0 PKCE, Client Credentials, Token storage)
 ├── mcp_client.py      # MCP transport layer (Streamable HTTP, SSE, HTTPS/SSL handling)
 ├── llm_client.py      # Multi-provider LLM Agent (Ollama, llama.cpp, OpenAI, Claude)
