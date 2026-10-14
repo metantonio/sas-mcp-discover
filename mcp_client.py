@@ -88,7 +88,11 @@ async def list_tools(url: str, token: str, cfg: dict = None):
 
 
 async def call_tool(url: str, token: str, name: str, args: dict, cfg: dict = None):
-    """Execute a tool on the SAS MCP Server."""
+    """Execute a tool on the SAS MCP Server (or simulated Demo MCP)."""
+    if cfg and cfg.get("demo_mode"):
+        from demo_mcp import execute_demo_tool
+        return execute_demo_tool(name, args)
+
     async with connect_mcp_session(url, token, cfg) as session:
         return await session.call_tool(name=name, arguments=args)
 
@@ -102,6 +106,11 @@ def extract_text(result):
     """Extract and format response text from CallToolResult or other outputs."""
     if result is None:
         return "(No response)"
+
+    if isinstance(result, str):
+        return result
+    if isinstance(result, (dict, list)):
+        return json.dumps(result, indent=2, ensure_ascii=False)
 
     parts = []
     is_error = getattr(result, "is_error", False)

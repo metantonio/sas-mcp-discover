@@ -10,6 +10,7 @@ from mcp_client import list_tools, call_tool, run_async, extract_text
 from llm_client import LLMAgent, LLM_PRESETS
 from pii_manager import PIIVault
 from session_manager import SessionManager
+from demo_mcp import get_demo_mcp_tools, execute_demo_tool
 
 
 class App:
@@ -23,6 +24,7 @@ class App:
         self.tools = []
         self._selected_tool = None
         self._fields = []
+        self.is_demo_mode = False
         self.llm_agent = LLMAgent(self.cfg)
 
         # PII and Session management
@@ -43,6 +45,7 @@ class App:
         
         file_menu = tk.Menu(menubar, tearoff=0)
         file_menu.add_command(label="Reload MCP Tools", command=self._load_tools_async)
+        file_menu.add_command(label="🍟 Demo: McDonald's Viya MCP", command=self._load_demo_mode)
         file_menu.add_command(label="View / Edit Token...", command=self._edit_token)
         file_menu.add_command(label="Re-authenticate (OAuth Viya)", command=self._force_relogin)
         file_menu.add_separator()
@@ -93,6 +96,9 @@ class App:
 
         self.btn_refresh = ttk.Button(toolbar, text="↻ Refresh MCP", command=self._load_tools_async)
         self.btn_refresh.pack(side="right", padx=4)
+
+        self.btn_demo = ttk.Button(toolbar, text="🍟 Demo: McDonald's MCP", command=self._load_demo_mode)
+        self.btn_demo.pack(side="right", padx=4)
 
         # Tabbed interface
         self.notebook = ttk.Notebook(self.root)
@@ -649,8 +655,8 @@ class App:
 
         def worker():
             try:
-                tok = self._get_token_flow()
-                url = self.cfg.get("mcp_server_url", "")
+                tok = "" if self.is_demo_mode else self._get_token_flow()
+                url = "demo://mcdonalds-sas-viya" if self.is_demo_mode else self.cfg.get("mcp_server_url", "")
 
                 def log_cb(msg):
                     self._append_chat(None, msg, "tool_call")
@@ -900,6 +906,10 @@ class App:
         messagebox.showinfo("Configuration", f"Configuration file loaded from:\n{p}")
 
     def _load_tools_async(self):
+        self.is_demo_mode = False
+        self.cfg["demo_mode"] = False
+        server_label = f"SAS Viya: {self.cfg.get('mcp_server_url', 'Not configured')}"
+        self.lbl_server.config(text=server_label)
         self.set_status("Connecting to MCP server...", "blue")
         self.btn_refresh.configure(state="disabled")
         self.btn_run.configure(state="disabled")
@@ -929,6 +939,43 @@ class App:
                 self.root.after(0, lambda: self.btn_refresh.configure(state="normal"))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _load_demo_mode(self):
+        """Load simulated SAS Viya MCP server with McDonald's consumer analytics."""
+        self.is_demo_mode = True
+        self.cfg["demo_mode"] = True
+        self.lbl_server.config(text="SAS Viya: [DEMO] McDonald's Analytics MCP Server")
+        self.set_status("Connected: Demo McDonald's Viya MCP (Simulated)", "#007700")
+
+        self.tools = get_demo_mcp_tools()
+        self._render_tools_list()
+
+        demo_banner = (
+            "🍟 [DEMO MODE ACTIVE] SAS Viya McDonald's Consumer Intelligence MCP Server\n\n"
+            "• Simulated SAS Viya Tools Loaded:\n"
+            "   1. get_mcdonalds_top_customers (Top 20 consumers, spend, visit frequency, favorite items)\n"
+            "   2. get_customer_consumption_profile (Specific customer journey, basket items, preferences)\n"
+            "   3. get_mcdonalds_popular_products_kpis (Affinity matrix, ranking, category metrics)\n\n"
+            "• Real LLM Integration: The active LLM will use these analytical tools to answer your questions.\n"
+            "• PII Privacy Shield: Real names, emails, phones, and SSNs are protected via pseudonymization.\n"
+            "• Manual Execution: Switch to the '⚡ Direct Form' tab to run tools directly."
+        )
+        self._append_chat(None, demo_banner, "system_msg")
+        if self.current_session:
+            self.current_session["messages"].append({
+                "speaker": None,
+                "text": demo_banner,
+                "tag": "system_msg"
+            })
+            self._save_current_session()
+
+        messagebox.showinfo(
+            "Demo Mode Activated",
+            "Simulated McDonald's SAS Viya MCP server connected!\n\n"
+            "• 20 Top McDonald's customers dataset loaded.\n"
+            "• Analytics include average spend, favorite products, and frequency.\n"
+            "• Real LLM reasoning & tool calls remain fully operational."
+        )
 
     def _render_tools_list(self):
         self._filter_tools()
@@ -1090,9 +1137,12 @@ class App:
 
         def worker():
             try:
-                tok = self._get_token_flow()
-                url = self.cfg.get("mcp_server_url", "")
-                result = run_async(call_tool, url, tok, tool_name, args, self.cfg)
+                if self.is_demo_mode:
+                    result = execute_demo_tool(tool_name, args)
+                else:
+                    tok = self._get_token_flow()
+                    url = self.cfg.get("mcp_server_url", "")
+                    result = run_async(call_tool, url, tok, tool_name, args, self.cfg)
                 formatted = extract_text(result)
                 self.set_output(f"=== RESULT FOR '{tool_name}' ===\n\n{formatted}")
                 self.set_status("Execution completed successfully", "#007700")

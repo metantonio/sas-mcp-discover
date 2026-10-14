@@ -56,6 +56,10 @@ In typical SAS Viya enterprise environments, powerful predictive models, decisio
   - Uses native **Tool / Function Calling** to reason and execute SAS Viya models autonomously.
   - Real-time tool execution tracking directly inside the chat window.
   - Interactive GUI configuration dialog for instant provider, model, and API key updates.
+- **🍟 McDonald's Consumer Intelligence Demo Mode**:
+  - One-click demo button simulating a live connection to a SAS Viya MAS / Customer Intelligence MCP server.
+  - Dataset: Top 20 McDonald's customers, favorite products, average spend, and visit frequencies.
+  - **Real LLM Integration**: Uses your configured AI provider (OpenAI, Claude, Ollama, llama.cpp) to reason over the analytical tools, paired with the DLP Privacy Vault.
 - **Zero-Install Single Executable**:
   - Bundles cleanly into a standalone `SASAgent.exe` via PyInstaller.
 
@@ -67,6 +71,7 @@ In typical SAS Viya enterprise environments, powerful predictive models, decisio
 sas-mcp-http/
 │
 ├── app.py             # Main Tkinter desktop UI (Direct Form + Multi-Session Chat + DLP)
+├── demo_mcp.py        # Simulated SAS Viya MCP Server (McDonald's Top Spenders Analytics)
 ├── pii_manager.py     # Reversible PII Masking Vault (domain-preserving email & ID tokens)
 ├── session_manager.py # Persistent multi-session conversation history
 ├── auth.py            # Authentication layer (OAuth 2.0 PKCE, Client Credentials, Token storage)
